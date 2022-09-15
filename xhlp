@@ -1,0 +1,129 @@
+#!/usr/bin/bash
+
+((recursive=0))
+((strict=0))
+# only valid if it contains only one character *after flag check*
+mode=''
+filelist=''
+
+usage() {
+	echo 'xhlp : automatically compile marked files on demand, or delete results.'
+	echo '    simply add "!xhlp marker" in your file to mark them for compilation.'
+	echo '    xhlp will create ./.xhlp to know what to remove later.'
+	echo 'DISCLAIMER : this is a quick, homemade script, which is *not* supported in any way.'
+	echo 'available flags :'
+	echo '-c : compile marked files'
+	echo '-C : clear files listed in .xhlp'
+	echo '    -c or -C must be used (but not both) for xhlp to work'
+	echo '-f : filelist ; please provide a filelist to use instead of marker/.xhlp detection.'
+	echo '    files cannot begin with a dash.'
+	echo '-r : recurse through subdirectories'
+	echo '-s : strict, output file not found errors (to stderr) when cleaning'
+	echo '-h : display this message'
+}
+
+if [[ $* = *"--help"* ]]; then
+	usage
+	exit 0
+fi
+
+while getopts 'cCfrsh' flag; do
+	case ${flag} in
+		c) mode+='c' ;;
+		C) mode+='C' ;;
+		f)
+			# TODO : implement this
+			## should grab everything after -f
+			#filelist='${$*#*-f}'
+		;;
+		r) ((recursive=1)) ;;
+		s) ((strict=1)) ;;
+		h)
+			usage
+			exit 0
+		;;
+	esac
+done
+
+if (( ${#mode} != 1 )); then
+	echo "invalid mode (select either -c to compile or -C to clean), exiting." >> /dev/stderr
+	exit 1
+fi
+
+# compilation mode
+if [ $mode = 'c' ]; then
+	if [ -n $filelist ]; then
+		filelist=$(rg $(if (( $recursive == 0 )); then echo "--max-depth 1"; fi ) -l '!xhlp marker' $(pwd))
+	fi
+
+	# overwrite the previous file as it's not needed anymore
+	echo '# .xhlp : this auto-generated file contains a list of executables compiled with xhlp.' > .xhlp
+	echo '# these executables are listed here as to be easily removable by this tool.' >> .xhlp
+	echo '# the first 15 lines of this file are reserved for comments (stable across versions),' >> .xhlp
+	echo '# so you can simply grab the list using `tail -n +16` :)' >> .xhlp
+	echo '# for more info, please check the repo (https://github.com/CloudyOasis/xhlp),' >> .xhlp
+	echo '# or find me elsewhere under the name cloudy oasis (e.g. u/cloudy_oasis) if the link is dead' >> .xhlp
+	printf '\n\n\n\n\n\n\n\n\n' >> .xhlp
+
+	# process count
+	((count=0))
+
+	for file in $filelist; do
+		((processed=1))
+		case ${file#*.} in # case extension in
+			c)
+				echo "$(realpath $file)" >> .xhlp
+				(gcc -std=c17 $file -lm -o ${file%.*}) &
+			;;
+			cpp)
+				(g++-11 -std=c++20 $file -o ${file%.*}) &
+			;;
+			*) ((processed=0));;
+		esac
+
+		if (( $processed != 0 )); then
+			# keep track of processes to wait for them later
+			processes+="$(echo $!) "
+			((count+=1))
+			echo "${file%.*}" >> .xhlp
+		fi
+	done
+
+	if (( $count == 0 )); then
+		echo 'no input files found.' > /dev/stderr
+		exit 1
+	fi
+
+	echo "$count compilation processes started, waiting for them to finish..."
+	
+	for i in $processes; do
+		wait $i
+	done
+
+	echo 'done !'
+	exit 0
+fi
+
+# cleaning mode
+if [ $mode = 'C' ]; then
+	if [ -n $filelist ]; then
+		if [ ! -f '.xhlp' ]; then
+			echo '.xhlp file not found, exiting'
+			exit $strict # only exit 1 if strict
+		fi
+
+		filelist=$(tail .xhlp -n +16)
+	fi
+
+	if (( $strict == 0 )); then
+		rm $filelist 2> /dev/null
+	else
+		rm $filelist
+	fi
+
+	rm .xhlp
+
+	echo 'done !'
+	exit 0
+fi
+
