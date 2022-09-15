@@ -16,9 +16,9 @@ usage() {
 	echo '-C : clear files listed in .xhlp'
 	echo '    -c or -C must be used (but not both) for xhlp to work'
 	echo '-f : filelist ; please provide a filelist to use instead of marker/.xhlp detection.'
-	echo '    files cannot begin with a dash.'
+	echo '    files cannot begin with a dash, and paths must be relative.'
 	echo '-r : recurse through subdirectories'
-	echo '-s : strict, output file not found errors (to stderr) when cleaning'
+	echo '-s : strict, affects output and return value but does not change behaviour'
 	echo '-h : display this message'
 }
 
@@ -53,7 +53,17 @@ fi
 # compilation mode
 if [ $mode = 'c' ]; then
 	if [ -n $filelist ]; then
-		filelist=$(rg $(if (( $recursive == 0 )); then echo "--max-depth 1"; fi ) -l '!xhlp marker' $(pwd))
+
+		filelist=$(rg $(if (( $recursive == 0 )); then echo "--max-depth 1"; fi) -l '!xhlp marker' $(pwd))
+		# should ripgrep not return paths relative to $(pwd), replace the previous line by the following :
+		# filelist=$( \
+		# 	for file in $(rg \
+		# 		$(if (( $recursive == 0 )); then echo "--max-depth 1"; fi) \
+		# 		-l '!xhlp marker' $(pwd) \
+		# 	); do
+		# 		realpath --relative-to=$(pwd) $file
+		# 	done \
+		# )
 	fi
 
 	# overwrite the previous file as it's not needed anymore
@@ -61,9 +71,10 @@ if [ $mode = 'c' ]; then
 	echo '# these executables are listed here as to be easily removable by this tool.' >> .xhlp
 	echo '# the first 15 lines of this file are reserved for comments (stable across versions),' >> .xhlp
 	echo '# so you can simply grab the list using `tail -n +16` :)' >> .xhlp
+	echo '# this file must contain relative paths only !' >> .xhlp
 	echo '# for more info, please check the repo (https://github.com/CloudyOasis/xhlp),' >> .xhlp
 	echo '# or find me elsewhere under the name cloudy oasis (e.g. u/cloudy_oasis) if the link is dead' >> .xhlp
-	printf '\n\n\n\n\n\n\n\n\n' >> .xhlp
+	printf '\n\n\n\n\n\n\n\n' >> .xhlp
 
 	# process count
 	((count=0))
@@ -72,7 +83,6 @@ if [ $mode = 'c' ]; then
 		((processed=1))
 		case ${file#*.} in # case extension in
 			c)
-				echo "$(realpath $file)" >> .xhlp
 				(gcc -std=c17 $file -lm -o ${file%.*}) &
 			;;
 			cpp)
@@ -85,12 +95,18 @@ if [ $mode = 'c' ]; then
 			# keep track of processes to wait for them later
 			processes+="$(echo $!) "
 			((count+=1))
-			echo "${file%.*}" >> .xhlp
+			echo "$(realpath --relative-to=$(pwd) ${file%.*})" >> .xhlp
+		else
+			if (( $strict != 0 )); then
+				echo "warning : $file not processed" > /dev/stderr
+			fi
 		fi
 	done
 
 	if (( $count == 0 )); then
-		echo 'no input files found.' > /dev/stderr
+		if (( $strict != 0 )); then
+			echo 'no input files found.' > /dev/stderr
+		fi
 		exit 1
 	fi
 
@@ -112,7 +128,13 @@ if [ $mode = 'C' ]; then
 			exit $strict # only exit 1 if strict
 		fi
 
-		filelist=$(tail .xhlp -n +16)
+		if (( $recursive == 1 )); then
+			filelist=$(tail .xhlp -n +16)
+		else
+			# grep if in working directory
+			filelist=$(tail .xhlp -n +16 | grep -v '/')
+			echo $filelist
+		fi
 	fi
 
 	if (( $strict == 0 )); then
