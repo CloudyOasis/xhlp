@@ -1,6 +1,6 @@
 # xhlp : compile files, delete the resulting binaries, with only one command (a homemade script)
 
-## **DISCLAIMER** : this is a personal project and is only public so i can show it to my friends. It is in no way officially supported.
+## **DISCLAIMER** : this is a personal project and is only public so i can show it to my friends. it is in no way officially supported.
 
 ## but what's this for ?
 
